@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Leaflet Map with Layer Control</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.js"></script>
+  <style>
+    #map {
+      width: 960px;
+      height: 500px;
+    }
+    #stateInput {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      background: white;
+      padding: 5px;
+      border-radius: 5px;
+    }
+    .info {
+      padding: 6px 8px;
+      font: 14px/16px Arial, Helvetica, sans-serif;
+      background: white;
+      background: rgba(255,255,255,0.8);
+      box-shadow: 0 0 15px rgba(0,0,0,0.2);
+      border-radius: 5px;
+    }
+    .info h4 {
+      margin: 0 0 5px;
+      color: #777;
+    }
+    path:hover {
+      fill: brown;
+      fill-opacity: 0.7;
+    }
+    .highlight-red {
+      color: red;
+      font-weight: bold;
+    }
+    .highlight-blue {
+      color: blue;
+    }
+  </style>
+</head>
+<body>
+  <div id="stateInput">
+    <label for="state">Enter State Name or Abbreviation:</label>
+    <input type="text" id="state" name="state" placeholder="e.g., Texas or TX">
+    <button onclick="zoomToState()">Go</button>
+  </div>
+  <div id="map"></div>
+
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/1.6.19/topojson.js"></script>
+
+
+  <script>
+    var csvData = {};
+    var stateGeoJSON;
+    var previousStateLayer = null;
+    // var stateCountiesLayer;
+    // Initialize the map
+    var map = L.map('map').setView([37.8, -96], 4);
+
+
+    // Add a base tile layer
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+
+    // Define colors seen in the map
+    var colors = {
+      1: '#006d2c',
+      2: '#FFF700',
+      3: '#FF8000',
+      4: '#FF1300'
+    };
+    var stateFipsMapping = {
+      'alabama': '01',
+      'al': '01',
+      'alaska': '02',
+      'ak': '02',
+      'arizona': '04',
+      'az': '04',
+      'arkansas': '05',
+      'ar': '05',
+      'california': '06',
+      'ca': '06',
+      'colorado': '08',
+      'co': '08',
+      'connecticut': '09',
+      'ct': '09',
+      'delaware': '10',
+      'de': '10',
+      'florida': '12',
+      'fl': '12',
+      'georgia': '13',
+      'ga': '13',
+      'hawaii': '15',
+      'hi': '15',
+      'idaho': '16',
+      'id': '16',
+      'illinois': '17',
+      'il': '17',
+      'indiana': '18',
+      'in': '18',
+      'iowa': '19',
+      'ia': '19',
+      'kansas': '20',
+      'ks': '20',
+      'kentucky': '21',
+      'ky': '21',
+      'louisiana': '22',
+      'la': '22',
+      'maine': '23',
+      'me': '23',
+      'maryland': '24',
+      'md': '24',
+      'massachusetts': '25',
+      'ma': '25',
+      'michigan': '26',
+      'mi': '26',
+      'minnesota': '27',
+      'mn': '27',
+      'mississippi': '28',
+      'ms': '28',
+      'missouri': '29',
+      'mo': '29',
+      'montana': '30',
+      'mt': '30',
+      'nebraska': '31',
+      'ne': '31',
+      'nevada': '32',
+      'nv': '32',
+      'new hampshire': '33',
+      'nh': '33',
+      'new jersey': '34',
+      'nj': '34',
+      'new mexico': '35',
+      'nm': '35',
+      'new york': '36',
+      'ny': '36',
+      'north carolina': '37',
+      'nc': '37',
+      'north dakota': '38',
+      'nd': '38',
+      'ohio': '39',
+      'oh': '39',
+      'oklahoma': '40',
+      'ok': '40',
+      'oregon': '41',
+      'or': '41',
+      'pennsylvania': '42',
+      'pa': '42',
+      'rhode island': '44',
+      'ri': '44',
+      'south carolina': '45',
+      'sc': '45',
+      'south dakota': '46',
+      'sd': '46',
+      'tennessee': '47',
+      'tn': '47',
+      'texas': '48',
+      'tx': '48',
+      'utah': '49',
+      'ut': '49',
+      'vermont': '50',
+      'vt': '50',
+      'virginia': '51',
+      'va': '51',
+      'washington': '53',
+      'wa': '53',
+      'west virginia': '54',
+      'wv': '54',
+      'wisconsin': '55',
+      'wi': '55',
+      'wyoming': '56',
+      'wy': '56'
+      };
+
+
+    // Create the info control for displaying data on hover
+    var infoFact = L.control();
+
+
+    infoFact.onAdd = function(map) {
+      this._div = L.DomUtil.create('div', 'info');
+      this.update();
+      return this._div;
+    };
+
+
+    infoFact.update = function(props) {
+      var color = props ? colors[props.HealthFactorsQuartile] || '#000000' : '#000000';
+      this._div.innerHTML = '<h4>Health Factors</h4>' +
+        (props ?
+          '<b>' + props.County + '</b><br />' +
+          '<span style="color: ' + color + '; font-weight: bold;">Factors Rank: ' + props.HealthFactorsRank + '</span><br />' +
+          '<span style="color: ' + color + ';">Factors Quartile: ' + props.HealthFactorsQuartile + '</span>' :
+          'Hover over a county');
+    };
+
+
+    infoFact.addTo(map);
+
+
+    var infoOut = L.control();
+
+
+    infoOut.onAdd = function(map) {
+      this._div = L.DomUtil.create('div', 'info');
+      this.update();
+      return this._div;
+    };
+
+
+    infoOut.update = function(props) {
+      var color = props ? colors[props.HealthOutcomesQuartile] || '#000000' : '#000000';
+      this._div.innerHTML = '<h4>Health Outcomes</h4>' +
+        (props ?
+          '<b>' + props.County + '</b><br />' +
+          '<span style="color: ' + color + '; font-weight: bold;">Outcomes Rank: ' + props.HealthOutcomesRank + '</span><br />' +
+          '<span style="color: ' + color + ';">Outcomes Quartile: ' + props.HealthOutcomesQuartile + '</span>' :
+          'Hover over a county');
+    };
+
+
+    infoOut.addTo(map);
+    
+    fetch('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json')
+      .then(response => response.json())
+      .then(data => {
+        stateGeoJson = L.geoJson(data, {
+          style: function (feature) {
+            return {
+              color: "blue",
+              weight: 2,
+              opacity: 0.7
+            };
+          }
+        }).addTo(map);
+      })
+      .catch(error => console.error('Error loading state GeoJSON data:', error));
+
+
+    // Fetch the GeoJSON data
+    fetch('https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json')
+      .then(response => response.json())
+      .then(countyData => {
+        d3.csv('2023CountyHealthRankingsData-HealthOutcomes.csv', function(error, healthOutcomes) {
+          if (error) {
+            console.error('Error loading CSV data:', error);
+            return;
+          }
+
+
+          // Make sure all of the fips numbers are 5 numbers
+          healthOutcomes.forEach(function(row) {
+            let newFIPS = row.FIPS.padStart(5, '0');
+            row.FIPS = newFIPS;
+            csvData[newFIPS] = row;
+          });
+
+
+          // Style functions for different layers using colors defined above
+          function styleFact(feature) {
+            var fips = feature.id;
+            var data = csvData[fips];
+            var quartile = data ? data.HealthFactorsQuartile : '';
+            var fillColor = (quartile === 'NR' || quartile === '') ? '#808080' : colors[parseInt(quartile)] || '#808080';
+            return {
+              fillColor: fillColor,
+              weight: 1,
+              opacity: 1,
+              color: 'green',
+              dashArray: '3',
+              fillOpacity: 0.7
+            };
+          }
+
+
+          function styleOut(feature) {
+            var fips = feature.id;
+            var data = csvData[fips];
+            var quart = data ? data.HealthOutcomesQuartile : null;
+            var fillColor = (quart === null) ? '#808080' : colors[quart] || '#808080';
+            return {
+              fillColor: fillColor,
+              weight: 1,
+              opacity: 1,
+              color: 'blue',
+              dashArray: '3',
+              fillOpacity: 0.7
+            };
+          }
+          
+          function styleState(feature) {
+          return {
+            color: 'red',
+            weight: 5,
+            opacity: 1,
+            fillOpacity: 0.7,
+            fillColor: 'yellow'
+          };
+        }
+
+          // Highlight the county when mouseover
+          function highlightFeatureFact(e) {
+            var layer = e.target;
+            layer.setStyle({
+              weight: 5,
+              color: '#666',
+              dashArray: '',
+              fillOpacity: 0.7
+            });
+
+
+            if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+              layer.bringToFront();
+            }
+
+
+            var fips = layer.feature.id;
+            var data = csvData[fips];
+            infoFact.update(data);
+          }
+
+
+          function highlightFeatureOut(e) {
+            var layer = e.target;
+            layer.setStyle({
+              weight: 5,
+              color: '#666',
+              dashArray: '',
+              fillOpacity: 0.7
+            });
+
+
+            if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+              layer.bringToFront();
+            }
+
+
+            var fips = layer.feature.id;
+            var data = csvData[fips];
+            infoOut.update(data);
+          }
+
+
+          // Reset the highlight
+          function resetHighlightFact(e) {
+            factorsLayer.resetStyle(e.target);
+            infoFact.update();
+          }
+
+
+          function resetHighlightOut(e) {
+            outcomesLayer.resetStyle(e.target);
+            infoOut.update();
+          }
+
+
+          // Factors layer mouse events
+          function onEachFeatureFact(feature, layer) {
+            layer.on({
+              mouseover: highlightFeatureFact,
+              mouseout: resetHighlightFact
+            });
+          }
+          // Outcomes layer mouse events
+          function onEachFeatureOut(feature, layer) {
+            layer.on({
+              mouseover: highlightFeatureOut,
+              mouseout: resetHighlightOut
+            });
+          }
+
+
+          // Create layers for outcomes and factors data
+          var factorsLayer = L.geoJson(countyData, {
+            style: styleFact,
+            onEachFeature: onEachFeatureFact
+          });
+
+
+          var outcomesLayer = L.geoJson(countyData, {
+            style: styleOut,
+            onEachFeature: onEachFeatureOut
+          });
+
+          var stateLayer = L.geoJson(null, {
+          style: styleState,
+          onEachFeature: onEachFeatureFact // Or other appropriate event handlers
+          });
+          window.zoomToState = function() {
+            console.log("Zoom button clicked");
+  
+            if (!stateGeoJson) {
+              alert('State data is still loading. Please wait and try again.');
+            return;
+            }
+
+            var inputState = document.getElementById('state').value.toLowerCase();
+            console.log("Input state:", inputState);
+
+            var fipsCode = stateFipsMapping[inputState];
+            console.log("FIPS code found:", fipsCode);
+
+
+  // Find the state by FIPS or name
+            var stateFeature = stateGeoJson.getLayers().find(layer => {
+              return layer.feature.properties.name.toLowerCase() === inputState || layer.feature.id === fipsCode;
+            });
+
+
+            console.log("State feature found:", stateFeature);
+
+  // Get the bounds of the state and zoom
+            var stateBounds = stateFeature.getBounds();
+            console.log("State bounds:", stateBounds);
+
+  // Filter counties within the selected state
+            var filteredCounties = countyData.features.filter(feature => {
+            var countyFips = feature.id.substring(0, 2); // Extract the state FIPS code
+              return countyFips === fipsCode;
+            });
+
+            if (filteredCounties.length === 0) {
+              alert('No counties found for this state.');
+            return;
+            }
+
+            console.log("Filtered counties:", filteredCounties);
+
+  // Remove the previous state layer, if any
+            if (previousStateLayer) {
+              map.removeLayer(previousStateLayer);
+              console.log("Previous state layer removed");
+            }
+
+  // Add filtered counties to a new layer
+            var stateCountiesLayer = L.geoJson({type: 'FeatureCollection', features: filteredCounties}, {
+              style: styleFact, // Or styleOut based on your requirement
+              onEachFeature: onEachFeatureFact // Or onEachFeatureOut based on your requirement
+            }).addTo(map)
+            console.log("State counties layer added");
+
+  // Zoom to the state's bounding box
+            map.fitBounds(stateBounds);
+            console.log("Map zoomed to state");
+
+  // Store the currently highlighted state as the previous state for future resets
+            previousStateLayer = stateCountiesLayer;
+            // layerControl.addOverlay(stateCountiesLayer, "New Selected State");
+          }
+
+          // Add layer control to switch between layers
+          var baseMaps = {
+            "Health Factors Quartile": factorsLayer,
+            "Health Outcomes Quartile": outcomesLayer,
+            "Selected State": stateLayer,
+            "New Selected State": stateCountiesLayer
+          };
+
+
+          L.control.layers(baseMaps).addTo(map);
+
+
+          // Initially add the Health Factors Quartile layer to the map
+          factorsLayer.addTo(map);
+        });
+      })
+      .catch(error => console.error('Error loading GeoJSON data:', error));
+  </script>
+</body>
+</html>
